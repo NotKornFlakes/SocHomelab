@@ -1,0 +1,10 @@
+// DETECTION: Linux download-and-execute from a world-writable path
+// Hunting query against Cowrie command logs. On real hosts, apply the same logic to
+// process command lines from your EDR or Linux audit logs.
+// Matches one-liners that fetch a payload (wget/curl/scp/tftp) and run it from /tmp, /var/tmp or /dev/shm.
+Cowrie_CL
+| where eventid == "cowrie.command.input"
+| where input has_any ("wget", "curl", "scp ", "tftp")
+| where input has_any ("/tmp", "/var/tmp", "/dev/shm")
+| where input has_any ("chmod +x", "| sh", "|sh", "bash", "nohup", "./")
+| project TimeGenerated, src_ip, session, input

@@ -1,0 +1,13 @@
+// Endlessh SSH tarpit: how long each bot stayed trapped.
+// Endlessh logs to Syslog (facility daemon); each CLOSE line carries time=<seconds>.
+let MyIP = "<your-home-ip>";
+Syslog
+| where ProcessName == "endlessh" and SyslogMessage has "CLOSE"
+| extend IP = extract(@"host=(?:::ffff:)?([0-9\.]+)", 1, SyslogMessage),
+         Seconds = todouble(extract(@"time=([0-9\.]+)", 1, SyslogMessage))
+| where IP != MyIP
+| summarize Connections = count(),
+            TotalMinutes = round(sum(Seconds) / 60, 1),
+            LongestMinutes = round(max(Seconds) / 60, 1)
+          by IP
+| order by TotalMinutes desc

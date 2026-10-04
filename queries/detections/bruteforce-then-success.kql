@@ -1,0 +1,11 @@
+// DETECTION: Brute force followed by a successful logon
+// Sentinel scheduled analytics rule. Run every 1 hour, look back 1 hour. Severity: High.
+// Turns brute-force noise into the one alert that means likely compromise.
+let suspects = SecurityEvent
+| where TimeGenerated > ago(1h) and EventID == 4625
+| summarize Fails = count() by IpAddress
+| where Fails >= 10;
+SecurityEvent
+| where TimeGenerated > ago(1h) and EventID == 4624
+| join kind=inner suspects on IpAddress
+| project TimeGenerated, Account, IpAddress, Fails

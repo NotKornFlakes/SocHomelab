@@ -1,0 +1,4 @@
+// Is each sensor still sending data? Both rows should show a recent time.
+union
+ (SecurityEvent | where TimeGenerated > ago(30m) | summarize LastSeen = max(TimeGenerated) | extend Source = "Windows RDP sensor"),
+ (Cowrie_CL     | where TimeGenerated > ago(30m) | summarize LastSeen = max(TimeGenerated) | extend Source = "Cowrie SSH sensor")

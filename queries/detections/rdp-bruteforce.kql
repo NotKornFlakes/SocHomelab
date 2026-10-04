@@ -1,0 +1,10 @@
+// DETECTION: RDP brute force
+// Sentinel scheduled analytics rule. Run every 5 minutes, look back 5 minutes. Severity: Medium.
+// Threshold: 10+ failures from one IP in 5 minutes. A user mistyping a password rarely
+// exceeds 3-5 in that window; the observed brute-force bots ran 20 to 200+.
+SecurityEvent
+| where EventID == 4625
+| summarize Attempts = count(), Accounts = dcount(Account),
+            FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
+          by IpAddress, bin(TimeGenerated, 5m)
+| where Attempts >= 10

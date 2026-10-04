@@ -1,0 +1,33 @@
+// One row per attacker IP across both sensors (RDP + Cowrie SSH):
+// totals, attack rate, first/last seen, and whether it is still active.
+// This is the summary export behind the dashboard.
+let MyIP = "<your-home-ip>";
+let ActiveWindow = 30m;          // seen within this long = still attacking
+let GeoIPDB_FULL = _GetWatchlist("geoip");
+union
+  (SecurityEvent
+   | where EventID == 4625 and IpAddress != MyIP and isnotempty(IpAddress) and IpAddress != "-"
+   | project TimeGenerated, IP = IpAddress, Service = "RDP"),
+  (Cowrie_CL
+   | where eventid startswith "cowrie.login" and src_ip != MyIP
+   | project TimeGenerated, IP = src_ip, Service = "SSH")
+| where TimeGenerated > ago(7d)
+| summarize TotalAttempts = count(),
+            RDP = countif(Service == "RDP"),
+            SSH = countif(Service == "SSH"),
+            FirstSeen = min(TimeGenerated),
+            LastSeen  = max(TimeGenerated)
+          by IP
+| extend DurationMin = round((LastSeen - FirstSeen) / 1m, 0),
+         Duration    = strcat(tostring(toint((LastSeen - FirstSeen) / 1h)), "h ",
+                              tostring(toint(((LastSeen - FirstSeen) % 1h) / 1m)), "m"),
+         Status      = iff(LastSeen > ago(ActiveWindow), "ACTIVE", "Stopped"),
+         Targets     = case(RDP > 0 and SSH > 0, "Both", RDP > 0, "RDP only", "SSH only"),
+         PerHour     = round(TotalAttempts / max_of(todouble((LastSeen - FirstSeen) / 1h), 1.0), 1)
+| evaluate ipv4_lookup(GeoIPDB_FULL, IP, network, return_unmatched = true)
+// an IP can match more than one GeoIP range; keep one row per IP
+| summarize take_any(countryname, cityname, latitude, longitude)
+          by Status, IP, TotalAttempts, RDP, SSH, Targets, Duration, DurationMin, PerHour, FirstSeen, LastSeen
+| project Status, IP, countryname, cityname, latitude, longitude, TotalAttempts, RDP, SSH,
+          Targets, Duration, DurationMin, PerHour, FirstSeen, LastSeen
+| order by Status asc, TotalAttempts desc

@@ -1,0 +1,7 @@
+// Safety check: every successful logon (Event 4624) with a network source.
+// Only the analyst's own IP should ever appear here.
+SecurityEvent
+| where EventID == 4624
+| where IpAddress != "" and IpAddress != "-"
+| summarize Logins = count() by Account, IpAddress
+| order by Logins desc

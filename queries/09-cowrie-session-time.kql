@@ -1,0 +1,12 @@
+// How long each attacker spent inside the Cowrie shell.
+let MyIP = "<your-home-ip>";
+Cowrie_CL
+| where eventid == "cowrie.session.closed"
+| where src_ip != MyIP
+| extend Seconds = todouble(extract(@"after ([0-9\.]+) seconds", 1, message))
+| summarize Sessions = count(),
+            TotalMinutes = round(sum(Seconds) / 60, 1),
+            LongestSec = round(max(Seconds), 1),
+            AvgSec = round(avg(Seconds), 1)
+          by src_ip
+| order by TotalMinutes desc

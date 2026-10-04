@@ -1,0 +1,10 @@
+// Files attackers uploaded, downloaded, or wrote via redirection inside Cowrie.
+// The SHA-256 is pulled from the message; look hashes up on VirusTotal.
+// Never execute files from Cowrie's downloads folder.
+let MyIP = "<your-home-ip>";
+Cowrie_CL
+| where eventid has_any ("file_upload", "file_download")
+| where src_ip != MyIP
+| extend sha256 = extract(@"([a-f0-9]{64})", 1, message)
+| summarize Times = count(), First = min(TimeGenerated), Last = max(TimeGenerated) by src_ip, sha256
+| order by First asc

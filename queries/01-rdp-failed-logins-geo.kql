@@ -1,0 +1,14 @@
+// Failed RDP logins (Event 4625) by source IP, enriched with GeoIP location.
+// Requires a Sentinel watchlist with alias "geoip" (SearchKey: network).
+let MyIP = "<your-home-ip>";
+let GeoIPDB_FULL = _GetWatchlist("geoip");
+SecurityEvent
+| where EventID == 4625
+| where IpAddress != MyIP
+| evaluate ipv4_lookup(GeoIPDB_FULL, IpAddress, network)
+| summarize Attempts = count(),
+            UsernamesTried = make_set(Account, 20),
+            FirstSeen = min(TimeGenerated),
+            LastSeen = max(TimeGenerated)
+          by IpAddress, cityname, countryname
+| order by Attempts desc

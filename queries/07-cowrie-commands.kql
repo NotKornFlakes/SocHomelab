@@ -1,0 +1,7 @@
+// Commands attackers ran after "logging in" to the Cowrie fake shell,
+// grouped into one row per session in the order they were typed.
+let MyIP = "<your-home-ip>";
+Cowrie_CL
+| where eventid == "cowrie.command.input" and src_ip != MyIP
+| summarize Commands = make_list(input, 50), Start = min(TimeGenerated) by src_ip, session
+| order by Start asc

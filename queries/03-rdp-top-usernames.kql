@@ -1,0 +1,8 @@
+// Usernames attackers guessed against RDP, most frequent first.
+let MyIP = "<your-home-ip>";
+SecurityEvent
+| where EventID == 4625
+| where IpAddress != MyIP
+| summarize Attempts = count() by Account
+| order by Attempts desc
+| take 20
