@@ -1,0 +1,13 @@
+// Why every failed RDP login failed (Event 4625 SubStatus).
+// "User does not exist" means the attacker guessed blind; "wrong password" means it found a real account.
+let MyIP = "<your-home-ip>";
+SecurityEvent
+| where EventID == 4625 and IpAddress !in ("", "-", MyIP)
+| extend Reason = case(
+    SubStatus =~ "0xc0000064", "User does not exist",
+    SubStatus =~ "0xc000006a", "REAL USER - wrong password",
+    SubStatus =~ "0xc0000072", "Account disabled",
+    SubStatus =~ "0xc0000234", "Account locked out",
+    strcat("Other: ", Status, " / ", SubStatus))
+| summarize Attempts = count(), Accounts = make_set(Account, 10), Attackers = dcount(IpAddress) by Reason
+| order by Attempts desc

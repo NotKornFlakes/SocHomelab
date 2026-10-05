@@ -1,0 +1,20 @@
+// DETECTION: Low-and-slow brute force (v2)
+// Sentinel scheduled analytics rule. Run every 1 hour, look back 24 hours. Severity: Medium.
+// Covers attackers who stay under the "10 failures in 5 minutes" rule by guessing slowly.
+// v1 (Attempts >= 50 and HoursActive >= 2) missed a 38-attempt / 7.5-hour source and
+// duplicated alerts for fast attackers. v2 requires persistence across separate hours
+// and a rate below 2 per minute, so it complements the fast rule instead of overlapping it.
+// Validated Oct 4, 2026: flagged 6 sources (0.08 to 1.74 attempts/min, 3.4 to 10.7 hours),
+// none of which the fast rule caught, and dropped all high-rate attackers.
+SecurityEvent
+| where TimeGenerated > ago(24h) and EventID == 4625
+| where IpAddress !in ("", "-")
+| summarize Attempts = count(), Accounts = dcount(Account),
+            HoursWithActivity = dcount(bin(TimeGenerated, 1h)),
+            FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by IpAddress
+| extend HoursActive = round((LastSeen - FirstSeen) / 1h, 1),
+         PerMinute = round(Attempts / max_of((LastSeen - FirstSeen) / 1m, 1.0), 2)
+| where Attempts >= 20
+    and HoursWithActivity >= 3
+    and PerMinute < 2
+| order by HoursActive desc

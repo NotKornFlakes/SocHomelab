@@ -1,0 +1,14 @@
+// Classify each RDP attacker by speed and username spread.
+let MyIP = "<your-home-ip>";
+SecurityEvent
+| where EventID == 4625 and IpAddress !in ("", "-", MyIP)
+| summarize Attempts = count(), Usernames = dcount(Account), TopUsernames = make_set(Account, 8),
+            Minutes = max_of(datetime_diff("minute", max(TimeGenerated), min(TimeGenerated)), 1) by IpAddress
+| extend PerMinute = round(todouble(Attempts) / Minutes, 2)
+| extend Strategy = case(
+    Attempts < 20,                        "Probe / opportunist",
+    PerMinute >= 100 and Usernames <= 10, "Flood: few accounts, max speed",
+    Usernames >= 100,                     "Spray: many usernames, few passwords",
+    PerMinute < 2,                        "Low and slow: evades rate alerts",
+                                          "Grinder: steady password list")
+| order by Attempts desc

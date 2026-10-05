@@ -1,0 +1,19 @@
+// Safety check across both VMs. Only your own IP should appear as a real login.
+// Real SSH logins need LOG_AUTH / LOG_AUTHPRIV in the Linux Syslog data collection rule.
+let MyIP = "<your-home-ip>";
+union
+  (SecurityEvent
+   | where EventID == 4624 and IpAddress !in ("", "-")
+   | project TimeGenerated, VM = "Windows (REAL)", Account, IpAddress),
+  (Syslog
+   | where Facility in ("auth", "authpriv") and SyslogMessage has "Accepted"
+   | extend IpAddress = extract(@"from ([0-9\.]+)", 1, SyslogMessage),
+            Account = extract(@"for (\S+) from", 1, SyslogMessage)
+   | project TimeGenerated, VM = "Linux SSH (REAL)", Account, IpAddress),
+  (Cowrie_CL
+   | where eventid == "cowrie.login.success" and src_ip != MyIP
+   | extend Account = tostring(split(extract(@"\[(.*)\]", 1, message), "/")[0])
+   | project TimeGenerated, VM = "Cowrie (FAKE shell)", Account, IpAddress = src_ip)
+| extend Verdict = case(IpAddress == MyIP, "OK - you", VM has "FAKE", "OK - honeypot", "ALERT - investigate now")
+| summarize Logins = count(), LastLogin = max(TimeGenerated) by Verdict, VM, Account, IpAddress
+| order by Verdict asc, LastLogin desc

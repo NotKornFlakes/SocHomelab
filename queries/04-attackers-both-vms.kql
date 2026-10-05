@@ -3,7 +3,6 @@
 // This is the summary export behind the dashboard.
 let MyIP = "<your-home-ip>";
 let ActiveWindow = 30m;          // seen within this long = still attacking
-let GeoIPDB_FULL = _GetWatchlist("geoip");
 union
   (SecurityEvent
    | where EventID == 4625 and IpAddress != MyIP and isnotempty(IpAddress) and IpAddress != "-"
@@ -24,10 +23,10 @@ union
          Status      = iff(LastSeen > ago(ActiveWindow), "ACTIVE", "Stopped"),
          Targets     = case(RDP > 0 and SSH > 0, "Both", RDP > 0, "RDP only", "SSH only"),
          PerHour     = round(TotalAttempts / max_of(todouble((LastSeen - FirstSeen) / 1h), 1.0), 1)
-| evaluate ipv4_lookup(GeoIPDB_FULL, IP, network, return_unmatched = true)
-// an IP can match more than one GeoIP range; keep one row per IP
-| summarize take_any(countryname, cityname, latitude, longitude)
-          by Status, IP, TotalAttempts, RDP, SSH, Targets, Duration, DurationMin, PerHour, FirstSeen, LastSeen
+// Built-in geolocation: one consistent answer per IP, no watchlist needed
+| extend geo = geo_info_from_ip_address(IP)
+| extend countryname = tostring(geo.country), cityname = tostring(geo.city),
+         latitude = toreal(geo.latitude), longitude = toreal(geo.longitude)
 | project Status, IP, countryname, cityname, latitude, longitude, TotalAttempts, RDP, SSH,
           Targets, Duration, DurationMin, PerHour, FirstSeen, LastSeen
 | order by Status asc, TotalAttempts desc
