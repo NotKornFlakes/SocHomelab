@@ -3,7 +3,7 @@
 I exposed three honeypots to the internet in Microsoft Azure and fed everything into Microsoft Sentinel. In about 37 hours they recorded **1,239,818 attack attempts from 75 IPs**. Not one got into a real system. Along the way I captured three malware families, reconstructed a full Linux intrusion chain, and built detections for the attacks I saw. The lab cost about **$4.50 a day**.
 
 **[View the interactive dashboard →](https://notkornflakes.github.io/SocHomelab/)**
-· [Full write-up on Medium](<medium-article-link>)
+· [Full write-up on Medium](YOUR-MEDIUM-LINK)
 
 > Collection window: Oct 3, 20:08 UTC to Oct 5, 09:03 UTC, 2026.
 
