@@ -5,7 +5,7 @@ I exposed three honeypots to the internet in Microsoft Azure and fed everything 
 **[View the interactive dashboard →](https://notkornflakes.github.io/SocHomelab/)**
 · [Full write-up on Medium](https://medium.com/@no1listeninghere/open-door-policy-what-a-37-hour-honeypot-cost-me-vs-what-it-cost-them-428698cdf050)
 
-> Collection window: Oct 3, 20:08 UTC to Oct 5, 09:03 UTC, 2026.
+> Collection window: Oct 3, 4:08 PM to Oct 5, 5:31 AM ET (US Eastern), 2026.
 
 ---
 
