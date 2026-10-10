@@ -3,7 +3,7 @@
 I exposed three honeypots to the internet in Microsoft Azure and fed everything into Microsoft Sentinel. In about 37 hours they recorded **1,239,818 attack attempts from 75 IPs**. Not one got into a real system. Along the way I captured three malware families, reconstructed a full Linux intrusion chain, and built detections for the attacks I saw. The lab cost about **$4.50 a day**.
 
 **[View the interactive dashboard →](https://notkornflakes.github.io/SocHomelab/)**
-· [Full write-up on Medium](https://medium.com/@no1listeninghere/open-door-policy-what-a-37-hour-honeypot-cost-me-vs-what-it-cost-them-428698cdf050)
+· [Full write-up on Medium](https://medium.com/@no1listeninghere/open-door-policy-what-a-37-hour-honeypot-cost-me-vs-what-it-cost-them-428698cdf050) [Part 2](https://github.com/NotKornFlakes/Sentinel-SOAR-Lab)
 
 > Collection window: Oct 3, 4:08 PM to Oct 5, 5:31 AM ET (US Eastern), 2026.
 
