@@ -1,0 +1,39 @@
+// DETECTION: SSH brute force against the Cowrie honeypot (MITRE T1110.001, T1110.003)
+// UNTESTED: validate in workspace before deploying.
+// Sentinel scheduled analytics rule. Run every 15 minutes, look back 1 hour. Severity: Low
+// (Cowrie is a fake shell: every source is hostile and a guess gives no real access).
+// Threshold: 10+ login attempts from one IP in the hour before a run. Runs overlap, so any
+// 45-minute stretch with 10+ attempts is always seen whole; duplicate alerts from
+// overlapping runs merge via alert grouping (group by IP, 24h).
+// Pattern labels a source as spraying when it tried 20+ usernames at under 3 guesses each,
+// matching password-spray.kql; otherwise it is password guessing.
+// Credentials are parsed from the message text, as in 06-cowrie-credentials.kql.
+// Check Cowrie_CL ingestion delay first: if TimeGenerated is ingestion time rather than
+// Cowrie's event time, timing is shifted (docs/kql-review.md, cross-cutting finding 4).
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
+// Entity mapping: IP Address = src_ip. See docs/kql-review.md, recommended detection P3.
+let Lookback    = 1h;
+let MinAttempts = 10;
+let TrustedIPs  = (_GetWatchlist('TrustedIPs') | project SearchKey);
+Cowrie_CL
+| where TimeGenerated > ago(Lookback)
+| where eventid startswith "cowrie.login"
+| where isnotempty(src_ip) and src_ip !in (TrustedIPs)
+| extend creds = extract(@"\[(.*)\]", 1, message)
+| extend User = tostring(split(creds, "/")[0]), Pass = tostring(split(creds, "/")[1])
+| summarize Attempts      = count(),
+            Users         = dcount(User),
+            Passwords     = dcount(Pass),
+            Sessions      = dcount(session),
+            SampleUsers   = make_set(User, 20),
+            Accepted      = countif(eventid == "cowrie.login.success"),
+            AcceptedCreds = make_set_if(creds, eventid == "cowrie.login.success", 10),
+            FirstSeen     = min(TimeGenerated),
+            LastSeen      = max(TimeGenerated)
+          by src_ip
+| where Attempts >= MinAttempts
+| extend Pattern = iff(Users >= 20 and todouble(Attempts) / Users < 3,
+                       "spray (T1110.003)", "guessing (T1110.001)")
+| project src_ip, Pattern, Attempts, Users, Passwords, Sessions, SampleUsers,
+          Accepted, AcceptedCreds, FirstSeen, LastSeen
+| order by Attempts desc

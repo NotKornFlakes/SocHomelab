@@ -1,20 +1,61 @@
-// DETECTION: Low-and-slow brute force (v2)
+// DETECTION: Low-and-slow brute force (v3)
+// UNTESTED: validate in workspace before deploying.
 // Sentinel scheduled analytics rule. Run every 1 hour, look back 24 hours. Severity: Medium.
 // Covers attackers who stay under the "10 failures in 5 minutes" rule by guessing slowly.
 // v1 (Attempts >= 50 and HoursActive >= 2) missed a 38-attempt / 7.5-hour source and
-// duplicated alerts for fast attackers. v2 requires persistence across separate hours
-// and a rate below 2 per minute, so it complements the fast rule instead of overlapping it.
-// Validated Oct 4, 2026: flagged 6 sources (0.08 to 1.74 attempts/min, 3.4 to 10.7 hours),
-// none of which the fast rule caught, and dropped all high-rate attackers.
-SecurityEvent
-| where TimeGenerated > ago(24h) and EventID == 4625
-| where IpAddress !in ("", "-")
-| summarize Attempts = count(), Accounts = dcount(Account),
-            HoursWithActivity = dcount(bin(TimeGenerated, 1h)),
-            FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by IpAddress
-| extend HoursActive = round((LastSeen - FirstSeen) / 1h, 1),
-         PerMinute = round(Attempts / max_of((LastSeen - FirstSeen) / 1m, 1.0), 2)
-| where Attempts >= 20
-    and HoursWithActivity >= 3
-    and PerMinute < 2
-| order by HoursActive desc
+// duplicated alerts for fast attackers. v2 required persistence across separate hours and an
+// average rate below 2 per minute. v2 was validated Oct 4, 2026 (flagged 6 sources, 0.08 to
+// 1.74 attempts/min, 3.4 to 10.7 hours, none caught by the fast rule), but the average-rate
+// cut left a gap (a steady 2-4/min could evade both rules) and an overlap (a short burst plus
+// stragglers hours later averaged under 2/min and fired both).
+// v3 replaces the average-rate cut with the fast rule's own measure: a source qualifies only
+// if its sliding 5-minute peak never reached rdp-bruteforce.kql's threshold. It also requires
+// a 2-hour span (so "3+ separate hours" can't be met by 61 minutes) and recent activity
+// (so a quiet source doesn't re-alert every hour for 24 hours).
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
+// See docs/kql-review.md, Rule 2.
+let Lookback      = 24h;
+let Frequency     = 1h;
+let FastThreshold = 10;      // keep equal to Threshold in rdp-bruteforce.kql
+let MinAttempts   = 20;
+let MinClockHours = 3;
+let MinSpan       = 2h;      // makes "3+ separate hours" mean real persistence
+let TrustedIPs    = (_GetWatchlist('TrustedIPs') | project SearchKey);
+let Failures = materialize(
+    SecurityEvent
+    | where TimeGenerated > ago(Lookback)
+    | where EventID == 4625
+    | where IpAddress !in ("", "-", "127.0.0.1", "::1") and IpAddress !in (TrustedIPs)
+    | project TimeGenerated, IpAddress, Computer, User = tolower(TargetUserName), SubStatus);
+let Persistent = materialize(
+    Failures
+    | summarize Attempts             = count(),
+                Accounts             = dcount(User),
+                SampleAccounts       = make_set(User, 20),
+                ExistingAccountFails = countif(SubStatus =~ "0xc000006a"),
+                Hosts                = make_set(Computer, 5),
+                ClockHours           = dcount(bin(TimeGenerated, 1h)),
+                FirstSeen            = min(TimeGenerated),
+                LastSeen             = max(TimeGenerated)
+              by IpAddress
+    | where Attempts >= MinAttempts
+        and ClockHours >= MinClockHours
+        and LastSeen - FirstSeen >= MinSpan
+        and LastSeen > ago(Frequency + 10m));   // still active: no repeat alerts after the source goes quiet
+let PersistentIPs = Persistent | project IpAddress;
+let Peaks = Failures
+    | where IpAddress in (PersistentIPs)
+    | make-series PerMinute = count() default = 0
+        on TimeGenerated from bin(ago(Lookback), 1m) to bin(now(), 1m) + 1m step 1m
+        by IpAddress
+    | extend Peak5m = todouble(series_stats_dynamic(
+                 series_fir(PerMinute, dynamic([1, 1, 1, 1, 1]), false, false))["max"])
+    | project IpAddress, Peak5m;
+Persistent
+| join kind=inner (Peaks) on IpAddress
+| where Peak5m < FastThreshold            // never reached the fast rule's threshold: no gap, no overlap
+| extend HoursSpan    = round((LastSeen - FirstSeen) / 1h, 1),
+         PerMinuteAvg = round(Attempts / max_of((LastSeen - FirstSeen) / 1m, 1.0), 2),
+         HostName     = tostring(Hosts[0])
+| project IpAddress, Attempts, Accounts, SampleAccounts, ExistingAccountFails, ClockHours,
+          HoursSpan, PerMinuteAvg, Peak5m, FirstSeen, LastSeen, HostName
