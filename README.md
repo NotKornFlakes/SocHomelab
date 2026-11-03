@@ -125,7 +125,7 @@ Many attacking IPs are compromised third-party devices, so treat IP indicators a
 | [Brute force then success](queries/detections/bruteforce-then-success.kql) | A successful logon from an IP with 10+ recent failures | High |
 | [Linux dropper pattern](queries/detections/linux-dropper-pattern.kql) | Download tool + world-writable path + execute in one command | High |
 
-The first version of the low-and-slow rule missed an attacker making one guess every 12 minutes and duplicated alerts for fast attackers. Version 2 fixed both, and the two rate rules now split the work with no overlap.
+The first version of the low-and-slow rule missed an attacker making one guess every 12 minutes and duplicated alerts for fast attackers. Version 2 fixed both, but a review later found it still left a gap and an overlap with the fast rule. The fast rule counted in fixed 5-minute bins, so a steady 2 to 4 guesses per minute could stay under 10 in every bin, while low-and-slow skipped anything averaging 2 or more per minute. A short burst plus a few stragglers hours later could trigger both. In the current, untested versions, both rules measure the same sliding 5-minute peak: the fast rule fires at 10 or more, and low-and-slow only considers sources that never reached 10. On rate, every source now falls on exactly one side. Low-and-slow still requires persistence (20+ failures in 24 hours, across 3+ clock hours spanning at least 2 hours), so a slow source below that floor triggers neither rule, by design. See the [KQL review](docs/kql-review.md).
 
 ## Cost: defender vs attacker
 

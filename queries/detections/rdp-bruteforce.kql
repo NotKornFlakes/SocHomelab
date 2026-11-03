@@ -1,10 +1,48 @@
-// DETECTION: RDP brute force
-// Sentinel scheduled analytics rule. Run every 5 minutes, look back 5 minutes. Severity: Medium.
-// Threshold: 10+ failures from one IP in 5 minutes. A user mistyping a password rarely
-// exceeds 3-5 in that window; the observed brute-force bots ran 20 to 200+.
-SecurityEvent
-| where EventID == 4625
-| summarize Attempts = count(), Accounts = dcount(Account),
-            FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated)
-          by IpAddress, bin(TimeGenerated, 5m)
-| where Attempts >= 10
+// DETECTION: RDP brute force (v2)
+// UNTESTED: validate in workspace before deploying.
+// Sentinel scheduled analytics rule. Run every 5 minutes, look back 10 minutes
+// (raise to 15 if measured ingestion delay exceeds 5 minutes). Severity: Medium.
+// Threshold: 10+ failures from one IP in any 5-minute window. A user mistyping a password
+// rarely exceeds 3-5 in that window; the observed brute-force bots ran 20 to 200+.
+// v1 used clock-aligned bin(TimeGenerated, 5m) inside a 5-minute lookback that is not
+// clock-aligned, so each run saw two partial bins: a steady source just under 4/min could
+// stay below 10 in both, and bursts that crossed a bin edge (6 + 6) never alerted.
+// v2 computes a sliding 5-minute peak (Peak5m) from per-minute counts, and the lookback
+// covers window + frequency so every 5-minute window falls inside at least one run.
+// low-and-slow-bruteforce.kql uses the same Peak5m and only flags sources with Peak5m < 10,
+// so the two rules split sources with no gap and no overlap. Keep Threshold in sync.
+// See docs/kql-review.md, Rule 1.
+let Lookback  = 10m;     // = 5m window + 5m frequency
+let Threshold = 10;      // failures in any sliding (minute-aligned) 5-minute window
+let MyIP      = "<your-home-ip>";
+let Failures = materialize(
+    SecurityEvent
+    | where TimeGenerated > ago(Lookback)
+    | where EventID == 4625
+    | where IpAddress !in ("", "-", "127.0.0.1", "::1", MyIP)
+    | project TimeGenerated, IpAddress, Computer, User = tolower(TargetUserName), LogonType, SubStatus);
+let Bursts = Failures
+    | make-series PerMinute = count() default = 0
+        on TimeGenerated from bin(ago(Lookback), 1m) to bin(now(), 1m) + 1m step 1m
+        by IpAddress
+    // trailing 5-point SUM (normalize=false, center=false) = failures in the 5 minutes ending at each minute
+    | extend Peak5m = todouble(series_stats_dynamic(
+                 series_fir(PerMinute, dynamic([1, 1, 1, 1, 1]), false, false))["max"])
+    | where Peak5m >= Threshold
+    | project IpAddress, Peak5m;
+Bursts
+| join kind=inner (
+    Failures
+    | summarize Attempts             = count(),
+                Accounts             = dcount(User),
+                SampleAccounts       = make_set(User, 20),
+                NonexistentUserFails = countif(SubStatus =~ "0xc0000064"),
+                ExistingAccountFails = countif(SubStatus =~ "0xc000006a"),
+                LogonTypes           = make_set(LogonType, 5),
+                Hosts                = make_set(Computer, 5),
+                FirstSeen            = min(TimeGenerated),
+                LastSeen             = max(TimeGenerated)
+              by IpAddress
+  ) on IpAddress
+| project IpAddress, Peak5m, Attempts, Accounts, SampleAccounts, NonexistentUserFails,
+          ExistingAccountFails, LogonTypes, HostName = tostring(Hosts[0]), FirstSeen, LastSeen
