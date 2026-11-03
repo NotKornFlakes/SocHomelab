@@ -2,8 +2,11 @@
 // Hunting query against Cowrie command logs. On real hosts, apply the same logic to
 // process command lines from your EDR or Linux audit logs.
 // Matches one-liners that fetch a payload (wget/curl/scp/tftp) and run it from /tmp, /var/tmp or /dev/shm.
+// UNTESTED: validate in workspace before deploying.
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
+let TrustedIPs = (_GetWatchlist('TrustedIPs') | project SearchKey);
 Cowrie_CL
-| where eventid == "cowrie.command.input"
+| where eventid == "cowrie.command.input" and src_ip !in (TrustedIPs)
 | where input has_any ("wget", "curl", "scp ", "tftp")
 | where input has_any ("/tmp", "/var/tmp", "/dev/shm")
 | where input has_any ("chmod +x", "| sh", "|sh", "bash", "nohup", "./")
