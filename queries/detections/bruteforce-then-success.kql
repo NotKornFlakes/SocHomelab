@@ -1,11 +1,51 @@
-// DETECTION: Brute force followed by a successful logon
-// Sentinel scheduled analytics rule. Run every 1 hour, look back 1 hour. Severity: High.
+// DETECTION: Brute force followed by a successful logon (v2)
+// UNTESTED: validate in workspace before deploying.
+// Sentinel scheduled analytics rule. Run every 10 minutes, look back 75 minutes. Severity: High.
 // Turns brute-force noise into the one alert that means likely compromise.
-let suspects = SecurityEvent
-| where TimeGenerated > ago(1h) and EventID == 4625
-| summarize Fails = count() by IpAddress
-| where Fails >= 10;
-SecurityEvent
-| where TimeGenerated > ago(1h) and EventID == 4624
-| join kind=inner suspects on IpAddress
-| project TimeGenerated, Account, IpAddress, Fails
+// v1 joined on IpAddress with no filter, so placeholder "-" addresses on failures matched
+// every service/system logon that also logged "-". It also never checked that the failures
+// came first, and its 1h lookback equalled its 1h frequency, so guessing at 10:55 followed
+// by a login at 11:02 fell in different runs and was never correlated.
+// v2: drops placeholder, loopback and analyst IPs and non-network logon types; counts only
+// failures in the 60 minutes BEFORE each success; overlaps runs (lookback = 60m + 15m).
+// Duplicate alerts from overlapping runs merge via alert grouping (group by IP + Account, 24h).
+// See docs/kql-review.md, Rule 4.
+let Lookback      = 75m;   // FailWindow + SuccessWindow
+let SuccessWindow = 15m;   // frequency (10m) + 5m overlap
+let FailWindow    = 60m;   // failures must fall in the hour BEFORE the success
+let MinFails      = 10;
+let MyIP          = "<your-home-ip>";
+let Successes = materialize(
+    SecurityEvent
+    | where TimeGenerated > ago(SuccessWindow)
+    | where EventID == 4624
+    | where LogonType in (3, 8, 10)                      // Network, NetworkCleartext, RemoteInteractive
+    | where IpAddress !in ("", "-", "127.0.0.1", "::1", MyIP)
+    | where TargetUserName !~ "ANONYMOUS LOGON" and TargetUserName !endswith "$"
+    | project SuccessTime = TimeGenerated, Computer, IpAddress, LogonType,
+              SuccessUser = tolower(TargetUserName), SuccessDomain = TargetDomainName);
+let SuccessIPs = Successes | distinct IpAddress;
+let FailMinutes = SecurityEvent
+    | where TimeGenerated > ago(Lookback)
+    | where EventID == 4625
+    | where IpAddress in (SuccessIPs)
+    | summarize Fails = count(), FailedUsers = make_set(tolower(TargetUserName), 50)
+              by IpAddress, FailMinute = bin(TimeGenerated, 1m);
+Successes
+| join kind=inner (FailMinutes) on IpAddress
+| where FailMinute between ((SuccessTime - FailWindow) .. SuccessTime)   // failures precede the success
+| summarize Fails       = sum(Fails),
+            FailedUsers = make_set(FailedUsers, 50),
+            FirstFail   = min(FailMinute),
+            LastFail    = max(FailMinute)
+          by SuccessTime, Computer, IpAddress, LogonType, SuccessUser, SuccessDomain
+| where Fails >= MinFails
+| summarize FirstSuccess = min(SuccessTime),
+            LogonTypes   = make_set(LogonType),
+            Fails        = max(Fails),
+            FailedUsers  = make_set(FailedUsers, 50),
+            FirstFail    = min(FirstFail),
+            LastFail     = max(LastFail)
+          by IpAddress, Computer, SuccessUser, SuccessDomain
+| extend SuccessUserWasGuessed = set_has_element(FailedUsers, SuccessUser),
+         HostName              = tostring(split(Computer, ".")[0])
