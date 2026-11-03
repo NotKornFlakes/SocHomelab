@@ -11,15 +11,16 @@
 // covers window + frequency so every 5-minute window falls inside at least one run.
 // low-and-slow-bruteforce.kql uses the same Peak5m and only flags sources with Peak5m < 10,
 // so the two rules split sources with no gap and no overlap. Keep Threshold in sync.
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
 // See docs/kql-review.md, Rule 1.
-let Lookback  = 10m;     // = 5m window + 5m frequency
-let Threshold = 10;      // failures in any sliding (minute-aligned) 5-minute window
-let MyIP      = "<your-home-ip>";
+let Lookback   = 10m;    // = 5m window + 5m frequency
+let Threshold  = 10;     // failures in any sliding (minute-aligned) 5-minute window
+let TrustedIPs = (_GetWatchlist('TrustedIPs') | project SearchKey);
 let Failures = materialize(
     SecurityEvent
     | where TimeGenerated > ago(Lookback)
     | where EventID == 4625
-    | where IpAddress !in ("", "-", "127.0.0.1", "::1", MyIP)
+    | where IpAddress !in ("", "-", "127.0.0.1", "::1") and IpAddress !in (TrustedIPs)
     | project TimeGenerated, IpAddress, Computer, User = tolower(TargetUserName), LogonType, SubStatus);
 let Bursts = Failures
     | make-series PerMinute = count() default = 0

@@ -9,18 +9,19 @@
 // v2: drops placeholder, loopback and analyst IPs and non-network logon types; counts only
 // failures in the 60 minutes BEFORE each success; overlaps runs (lookback = 60m + 15m).
 // Duplicate alerts from overlapping runs merge via alert grouping (group by IP + Account, 24h).
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
 // See docs/kql-review.md, Rule 4.
 let Lookback      = 75m;   // FailWindow + SuccessWindow
 let SuccessWindow = 15m;   // frequency (10m) + 5m overlap
 let FailWindow    = 60m;   // failures must fall in the hour BEFORE the success
 let MinFails      = 10;
-let MyIP          = "<your-home-ip>";
+let TrustedIPs    = (_GetWatchlist('TrustedIPs') | project SearchKey);
 let Successes = materialize(
     SecurityEvent
     | where TimeGenerated > ago(SuccessWindow)
     | where EventID == 4624
     | where LogonType in (3, 8, 10)                      // Network, NetworkCleartext, RemoteInteractive
-    | where IpAddress !in ("", "-", "127.0.0.1", "::1", MyIP)
+    | where IpAddress !in ("", "-", "127.0.0.1", "::1") and IpAddress !in (TrustedIPs)
     | where TargetUserName !~ "ANONYMOUS LOGON" and TargetUserName !endswith "$"
     | project SuccessTime = TimeGenerated, Computer, IpAddress, LogonType,
               SuccessUser = tolower(TargetUserName), SuccessDomain = TargetDomainName);

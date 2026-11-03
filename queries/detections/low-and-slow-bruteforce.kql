@@ -12,6 +12,7 @@
 // if its sliding 5-minute peak never reached rdp-bruteforce.kql's threshold. It also requires
 // a 2-hour span (so "3+ separate hours" can't be met by 61 minutes) and recent activity
 // (so a quiet source doesn't re-alert every hour for 24 hours).
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
 // See docs/kql-review.md, Rule 2.
 let Lookback      = 24h;
 let Frequency     = 1h;
@@ -19,12 +20,12 @@ let FastThreshold = 10;      // keep equal to Threshold in rdp-bruteforce.kql
 let MinAttempts   = 20;
 let MinClockHours = 3;
 let MinSpan       = 2h;      // makes "3+ separate hours" mean real persistence
-let MyIP          = "<your-home-ip>";
+let TrustedIPs    = (_GetWatchlist('TrustedIPs') | project SearchKey);
 let Failures = materialize(
     SecurityEvent
     | where TimeGenerated > ago(Lookback)
     | where EventID == 4625
-    | where IpAddress !in ("", "-", "127.0.0.1", "::1", MyIP)
+    | where IpAddress !in ("", "-", "127.0.0.1", "::1") and IpAddress !in (TrustedIPs)
     | project TimeGenerated, IpAddress, Computer, User = tolower(TargetUserName), SubStatus);
 let Persistent = materialize(
     Failures

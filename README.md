@@ -167,7 +167,7 @@ SocHomelab/
         └── linux-dropper-pattern.kql
 ```
 
-Replace `<your-home-ip>` in the queries with your own IP so your logins are excluded. Locations use KQL's built-in `geo_info_from_ip_address()`; no watchlist is needed except for `01-rdp-failed-logins-geo.kql`, kept for comparison with the original tutorial.
+Replace `<your-home-ip>` in the hunting queries with your own IP so your logins are excluded. The detection rules in `queries/detections/` that exclude your IP read it from a Sentinel watchlist named `TrustedIPs` instead, with the IP address as its search key, so create that watchlist before deploying them. Locations use KQL's built-in `geo_info_from_ip_address()`; no other watchlist is needed except for `01-rdp-failed-logins-geo.kql`, kept for comparison with the original tutorial.
 
 ## Skills demonstrated
 

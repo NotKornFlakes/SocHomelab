@@ -10,14 +10,15 @@
 // Credentials are parsed from the message text, as in 06-cowrie-credentials.kql.
 // Check Cowrie_CL ingestion delay first: if TimeGenerated is ingestion time rather than
 // Cowrie's event time, timing is shifted (docs/kql-review.md, cross-cutting finding 4).
+// Excludes analyst IPs listed in the TrustedIPs watchlist (SearchKey = IP address); create it before deploying.
 // Entity mapping: IP Address = src_ip. See docs/kql-review.md, recommended detection P3.
 let Lookback    = 1h;
 let MinAttempts = 10;
-let MyIP        = "<your-home-ip>";
+let TrustedIPs  = (_GetWatchlist('TrustedIPs') | project SearchKey);
 Cowrie_CL
 | where TimeGenerated > ago(Lookback)
 | where eventid startswith "cowrie.login"
-| where isnotempty(src_ip) and src_ip != MyIP
+| where isnotempty(src_ip) and src_ip !in (TrustedIPs)
 | extend creds = extract(@"\[(.*)\]", 1, message)
 | extend User = tostring(split(creds, "/")[0]), Pass = tostring(split(creds, "/")[1])
 | summarize Attempts      = count(),
